@@ -43,6 +43,13 @@ dbutils.widgets.dropdown("perf_metric", "f1_score.macro", ["accuracy_score", "pr
 dbutils.widgets.dropdown("drift_metric", "js_distance", ["chi_squared_test.statistic", "chi_squared_test.pvalue", "tv_distance", "l_infinity_distance", "js_distance"])
 dbutils.widgets.text("model_id", "*", "Model Id")
 
+# This notebook is usually opened by hand rather than run from a job, so declare the
+# catalog and stage schema here instead of inheriting them. `%run` passes the calling
+# notebook's widgets down to 00-setup, and without these two the schema would default
+# to "dbdemos_mlops" (not a real stage) and the catalog to its placeholder.
+dbutils.widgets.text("catalog", "<CATALOG>", "Unity Catalog")
+dbutils.widgets.text("stage_db", "dbdemos_mlops_prod", "Stage schema (monitor production)")
+
 # COMMAND ----------
 
 # MAGIC %md

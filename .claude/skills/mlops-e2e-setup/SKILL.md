@@ -307,6 +307,17 @@ Run 07 before 08 - 07 creates the inference table, the baseline table and the mo
 08 injects synthetic drift and reads the monitor's metrics tables. Both take a while (08
 generates 30 days of data and polls the monitor refresh).
 
+## Known to work
+
+These phases have been run start to finish on two unrelated workspaces - an Azure FEVM
+sandbox and a shared AWS workspace using an existing catalog with prefixed schemas. In both
+cases: 12 jobs deployed, production held the feature/label tables while dev and staging held
+none, the model registered, the deployment job reported `CONNECTED`, and a newly registered
+version parked with `Approval_Check` failing on *"Model version not approved for deployment"*.
+
+If your run diverges from that, treat it as a real difference worth understanding rather than
+something to work around.
+
 ## When something fails
 
 | Symptom | Cause |

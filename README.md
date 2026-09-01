@@ -111,43 +111,60 @@ authenticates as the CI service principal (OAuth machine-to-machine, from the re
 
 ## Setup (once per workspace)
 
-### 1. Workspace values
-Set these to match your environment:
+### The quick path — use the setup skill
 
-| Value | Where |
-|---|---|
-| Workspace URL | `churn-mlops/databricks.yml` — `host:` on each target |
-| Catalog | `databricks.yml` variable **and** `src/_resources/00-setup.py` |
-| CI service principal (app id) | `databricks.yml` variable `service_principal_app_id` |
+If you work with Claude Code, this repository ships a skill that takes you from this clone
+to a working pipeline:
 
-Create three schemas in the catalog: `dbdemos_mlops_dev`, `dbdemos_mlops_staging`,
+```
+/mlops-e2e-setup
+```
+
+It checks your CLI and catalog access, creates the three stage schemas, deploys the bundle
+to dev/staging/prod, seeds production data, walks you through the CI service principal and
+its permission chain, registers a first model version, links the approval gate, and tells
+you exactly which GitHub secrets and variable to set. It verifies each phase before moving
+on, and stops to ask you for the few things it cannot safely do itself — creating a service
+principal and minting its secret.
+
+The skill lives in [`.claude/skills/mlops-e2e-setup/`](.claude/skills/mlops-e2e-setup/) and
+is worth reading even if you set things up by hand: it records the failure modes that cost
+us the most time.
+
+### Or by hand
+
+**Nothing in the repository needs editing.** The catalog is a bundle variable and the
+workspace URL comes from your environment, so configuration is:
+
+| Setting | Local | In CI |
+|---|---|---|
+| Catalog | `export BUNDLE_VAR_catalog=<your_catalog>` | repository **variable** `DATABRICKS_CATALOG` |
+| Workspace | your CLI profile (`-p <profile>`) | secret `DATABRICKS_HOST` |
+| Credentials | your CLI profile | secrets `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` |
+
+Create three schemas in your catalog — `dbdemos_mlops_dev`, `dbdemos_mlops_staging`,
 `dbdemos_mlops_prod`. Production owns the data; dev and staging read from it.
 
-### 2. GitHub Actions secrets
-`Settings → Secrets and variables → Actions` — the service principal's OAuth credentials, used by
-every workflow:
-```
-DATABRICKS_HOST            = https://<workspace-host>
-DATABRICKS_CLIENT_ID       = <service principal application id>
-DATABRICKS_CLIENT_SECRET   = <service principal OAuth secret>
-```
+Then:
 
-### 3. Branch protection on `main` (Gate 1)
-`Settings → Branches → add rule for main`:
-- ✅ **Require a pull request before merging** — require **1** approving review
-- ✅ **Require status checks to pass** — select the **`validate`** check *(the check is named after
-  the job, `validate`)*
-- Create branches **`main`** (the protected trunk) and **`release`** (the production pointer).
+1. **GitHub secrets and variable** — `Settings → Secrets and variables → Actions`. Three
+   secrets as above, plus the variable `DATABRICKS_CATALOG`. The workflows fail fast with a
+   clear message if the catalog is missing.
+2. **Branch protection on `main` (Gate 1)** — require a pull request with **1** approving
+   review and the **`validate`** status check. Create `main` and `release`.
+3. **Environment `prod` (Gate 2)** — `Settings → Environments → New environment → prod`,
+   add a **required reviewer**. The production stage targets it, so promotion pauses.
+4. **Databricks side** — deploy the bundle per target, grant the CI service principal, and
+   link the MLflow deployment job to the production model so new versions park for approval
+   (Gate 3).
 
-### 4. Pre-production release Environment (Gate 2)
-`Settings → Environments → New environment → prod` → add a **Required reviewer**. The `churn-cd`
-production stage targets this environment, so promotion to prod pauses for that reviewer's approval.
+Full step-by-step, including every permission grant and a troubleshooting section, is in
+**[SETUP.md](SETUP.md)**.
 
-### 5. Databricks side
-Deploy the bundle to each target, grant the CI service principal access to the catalog/schemas and
-model, and link the MLflow deployment job to the production model (this makes new versions park for
-model approval — Gate 3). Full step-by-step setup, including the exact permission grants and a
-troubleshooting section, is in **[SETUP.md](SETUP.md)**.
+> **Gates 1 and 2 need a public repository** on GitHub Free. Branch protection and
+> environment required-reviewers are both rejected on a private repo on that plan — and a
+> private repo will happily create the `prod` environment without pausing, which quietly
+> removes Gate 2. Check this before relying on the gates.
 
 ---
 

@@ -148,6 +148,25 @@ Confirm the link with
    pauses for approval.
 4. Create the **`release`** branch (it records what production is running; nothing triggers from it).
 
+## 7. Optional: monitoring and drift
+
+Notebooks `07_model_monitoring` and `08_drift_detection` are not part of any job — open them
+by hand when you want to show Lakehouse Monitoring. They read
+`advanced_churn_offline_inference`, so **batch inference must have run in the target schema
+first**:
+
+```bash
+databricks bundle run churn_batch_inference -t prod -p <profile>
+```
+
+Run **07 before 08**: 07 creates the inference and baseline tables and attaches the monitor
+(which provisions `_profile_metrics` and `_drift_metrics` tables plus a dashboard); 08 then
+injects synthetic drift, refreshes the monitor and reads the drift metrics back. Both are
+slow — 08 generates 30 days of data and polls the refresh.
+
+Both notebooks declare their own `catalog` and `stage_db` widgets, defaulting the schema to
+production. Set them if you want to monitor a different stage.
+
 ---
 
 ## Troubleshooting

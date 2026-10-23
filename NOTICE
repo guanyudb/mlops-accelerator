@@ -1,0 +1,24 @@
+MLOps Accelerator for Databricks
+
+This repository contains two kinds of content, under different licences.
+
+1. Original work - Apache License 2.0 (see LICENSE)
+
+   The CI/CD pipelines (.github/workflows/, azure-pipelines/), the Databricks
+   Asset Bundle configuration (churn-mlops/databricks.yml, churn-mlops/resources/),
+   the Claude Code setup skill (.claude/), and the documentation.
+
+2. Notebooks derived from dbdemos - Databricks License
+   (see churn-mlops/src/_resources/LICENSE.py)
+
+   Everything under churn-mlops/src/ is adapted from the dbdemos
+   "MLOps - End 2 end pipeline" demo (advanced track),
+   Copyright (2022) Databricks, Inc. These files are not covered by the Apache
+   License above; they remain subject to the Databricks License, which permits
+   use only in connection with the Databricks platform.
+
+     Demo:      https://www.databricks.com/resources/demos/tutorials/data-science-and-ai/mlops-end-to-end-pipeline
+     Notebooks: https://notebooks.databricks.com/demos/mlops-end2end/index.html
+
+   The changes made to those notebooks for this project are summarised in the
+   README under "Built on the dbdemos MLOps end-to-end demo".

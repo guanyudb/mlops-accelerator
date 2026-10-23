@@ -117,7 +117,11 @@ databricks service-principals create --display-name churn-mlops-ci -p <PROFILE>
 databricks service-principal-secrets-proxy create <SP_NUMERIC_ID> -p <PROFILE>
 ```
 
-Ask them for the **application id** (safe to share) and to keep the secret for Phase 6.
+The second command **prints the secret**. It must run in the user's **own terminal**, not
+through you and not with Claude Code's `!` prefix - either way its output would land in the
+conversation. Ask them for the **application id** (safe to share), and to keep the secret
+somewhere safe for Phase 6 and the Phase 7 profile. If a secret does get pasted into the
+conversation, tell the user to delete it and mint a new one.
 
 Then apply the permission chain. Each grant unblocks a specific step, and two can only be
 applied after the objects exist:
@@ -215,19 +219,25 @@ link is good - do not trust it.
 
 ## Phase 7 - Verify the whole thing
 
-Confirm as the **service principal**, since that is what CI uses:
+Confirm as the **service principal**, since that is what CI uses. Do it through a CLI
+profile so the secret never passes through you. **The user adds this to `~/.databrickscfg`
+in their own editor** - do not write it for them, and never read or print that file:
+
+```ini
+[churn-mlops-ci]
+host          = <WORKSPACE_URL>
+client_id     = <APPLICATION_ID>
+client_secret = <the OAuth secret from Phase 4>
+```
+
+Then:
 
 ```bash
-export DATABRICKS_HOST=<workspace url>
-export DATABRICKS_CLIENT_ID=<application id>
-export DATABRICKS_CLIENT_SECRET=<secret>   # from the user's environment, never echoed
 export BUNDLE_VAR_catalog=<CATALOG>
-unset DATABRICKS_TOKEN
-
-databricks current-user me                       # authenticates as the application id
-databricks bundle validate -t staging
-databricks bundle deploy   -t staging            # exactly what CI runs
-databricks bundle run churn_training -t staging  # must reach the register task
+databricks current-user me -p churn-mlops-ci                       # must show the application id
+databricks bundle validate -t staging -p churn-mlops-ci
+databricks bundle deploy   -t staging -p churn-mlops-ci            # exactly what CI runs
+databricks bundle run churn_training -t staging -p churn-mlops-ci  # must reach the register task
 ```
 
 Then check the gate is armed - the parked version should show `challenger` and its

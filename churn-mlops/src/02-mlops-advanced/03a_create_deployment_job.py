@@ -38,6 +38,23 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Not part of this project's pipeline - read before running
+# This project defines the MLflow deployment job in the bundle
+# (resources/deployment_job.yml), deployed and owned by the CI service principal.
+# This dbdemos tutorial notebook creates a *separate* job and re-links the model
+# to it, which would silently move the model-approval gate (Gate 3) off the
+# CI-managed job. It is kept for reference only.
+dbutils.widgets.dropdown("run_standalone", "false", ["true", "false"], "Run this tutorial notebook anyway")
+if dbutils.widgets.get("run_standalone") != "true":
+    raise RuntimeError(
+        "Not used in this project: the bundle already defines and links the deployment job "
+        "(resources/deployment_job.yml). Running this notebook would re-link the model to a "
+        "different job and bypass the CI-managed approval gate. Set the `run_standalone` "
+        "widget to true only if you are using this notebook outside the project."
+    )
+
+# COMMAND ----------
+
 # MAGIC %pip install --quiet mlflow --upgrade
 # MAGIC
 # MAGIC

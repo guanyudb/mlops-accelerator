@@ -1,8 +1,25 @@
+<div align="center">
+
 # MLOps Accelerator for Databricks
 
-A reference implementation of governed MLOps on Databricks that runs on **GitHub Actions or
-Azure DevOps**. One model is promoted **dev → staging → prod** from a single codebase,
-governed by **three human approval gates**:
+**Governed MLOps you can clone: one codebase promoted dev → staging → prod,<br>
+three human approval gates, on GitHub Actions or Azure DevOps.**
+
+[![Databricks Asset Bundles](https://img.shields.io/badge/Databricks-Asset%20Bundles-FF3621?logo=databricks&logoColor=white)](https://docs.databricks.com/dev-tools/bundles/)
+[![MLflow 3](https://img.shields.io/badge/MLflow%203-deployment%20jobs-0194E2?logo=mlflow&logoColor=white)](https://docs.databricks.com/mlflow/deployment-job)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-supported-2088FF?logo=githubactions&logoColor=white)](.github/workflows)
+[![Azure DevOps](https://img.shields.io/badge/Azure%20DevOps-supported-0078D7)](azure-pipelines)
+[![Claude Code skill](https://img.shields.io/badge/Claude%20Code-%2Fmlops--setup-D97757?logo=claude&logoColor=white)](.claude/skills/mlops-setup)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/workflow-dark.png">
+  <img alt="How a change reaches production: develop, pull request, Gate 1 code review, staging, Gate 2 release approval, production. In Databricks, each new production model version is evaluated, waits at Gate 3 for a human to approve it in Unity Catalog, then becomes the champion and the serving endpoint updates." src="docs/assets/workflow-light.png" width="100%">
+</picture>
+
+</div>
+
+A reference implementation of governed MLOps on Databricks. One model is promoted
+**dev → staging → prod** from a single codebase, governed by **three human approval gates**:
 
 1. **Code review** — a pull request into `main` must pass CI and be approved before it merges.
 2. **Pre-production release** — after the change is validated in staging, a human approves the
@@ -45,31 +62,9 @@ Follow **[SETUP.md](SETUP.md)**. The steps are the same ones the skill follows.
 
 ## How a change reaches production
 
-```
- feature branch  →  edit  →  open a pull request into main
-        │
-   ┌────▼──────────────────────────────────────────────────────┐
-   │ GATE 1 — Code review                                       │
-   │   CI validates the change and deploys it to staging;      │
-   │   a reviewer approves; the pull request merges.            │
-   └────┬───────────────────────────────────────────────────────┘
-        │ merge to main starts one CD run:
-        │   • Staging — deploy, train, register a model (end-to-end check)
-   ┌────▼──────────────────────────────────────────────────────┐
-   │ GATE 2 — Pre-production release                            │
-   │   the run pauses; a human approves promotion to production │
-   └────┬───────────────────────────────────────────────────────┘
-        │   • Prod    — deploy, train, register a new production model version
-        │   • Promote — advance the `release` pointer to this commit
-   ┌────▼──────────────────────────────────────────────────────┐
-   │ GATE 3 — Model approval (Unity Catalog)                    │
-   │   a data scientist approves the version → it becomes       │
-   │   @Champion → the serving endpoint updates                 │
-   └────────────────────────────────────────────────────────────┘
-```
-
-**Three human actions:** approve and merge the pull request · approve the production release ·
-approve the model.
+Gates 1 and 2 live in your CI/CD platform; Gate 3 lives in Databricks, so the model approval
+works the same whichever platform you choose. **Three human actions:** approve and merge the
+pull request · approve the production release · approve the model.
 
 ## CI/CD on each platform
 
@@ -107,9 +102,34 @@ churn-mlops/                      # the Databricks Asset Bundle
 .github/workflows/                # GitHub Actions
 azure-pipelines/                  # Azure DevOps (+ templates/ for shared steps)
 .claude/skills/mlops-setup/       # the setup skill and its reference guides
+docs/assets/                      # the diagram above: workflow.html + render.sh -> PNGs
 CLAUDE.md                         # orientation for Claude Code
 SETUP.md                          # setting up by hand
+NOTICE                            # which parts are Apache 2.0 and which are Databricks License
 ```
+
+## Built on the dbdemos MLOps end-to-end demo
+
+The model pipeline is the **advanced** track of the Databricks
+[MLOps - End 2 end pipeline](https://www.databricks.com/resources/demos/tutorials/data-science-and-ai/mlops-end-to-end-pipeline)
+demo ([notebooks](https://notebooks.databricks.com/demos/mlops-end2end/index.html)): feature
+engineering, Optuna hyperparameter search, Unity Catalog registration, champion/challenger
+validation, an MLflow 3 deployment job, real-time serving, and Lakehouse Monitoring.
+
+This project wraps it in an Asset Bundle and CI/CD, and changes it where running under a
+pipeline required it:
+
+| Change | Why |
+|---|---|
+| Validation records its checks and sets `@challenger` but **never approves** | The demo auto-approves and promotes; here a human approves in Unity Catalog (Gate 3) |
+| Approval removes `@challenger` when it promotes to `@champion` | A promoted version shows one alias, not two |
+| Registration is its own job task after training | Every training run produces a version, so every run reaches the gate |
+| The final model is logged in a fresh MLflow run, and each Optuna study gets a unique name | Repeat runs otherwise hit the 1000-metrics-per-model limit, or reload an old study and fail |
+| Catalog and stage schema arrive as job parameters; production owns the data | One codebase deploys to every stage and workspace with no edits; dev and staging read production data instead of copying it |
+| Serving tolerates a workspace without a serverless budget policy | The model still promotes; the endpoint updates once the policy is granted |
+| `pandas` and `cloudpickle` pinned when logging the model | Serving environments otherwise resolve incompatible versions |
+| Monitoring and drift notebooks declare their own catalog and schema; `03a` is guarded | They run correctly when opened by hand, and `03a` cannot re-link the model to a job outside CI |
+| Usage-tracking beacons removed from the notebooks | |
 
 ## Using your own model
 
@@ -137,3 +157,10 @@ places the model name appears — is in
   automated check is enforced either way.
 - **This repository's own CI is skipped.** It is a template with no workspace attached, so the
   workflows skip themselves here and run normally in your copy.
+
+## License
+
+The CI/CD pipelines, bundle configuration, setup skill and documentation are released under the
+[Apache License 2.0](LICENSE). The notebooks under `churn-mlops/src/` are adapted from dbdemos and
+remain under the [Databricks License](churn-mlops/src/_resources/LICENSE.py), which permits use
+only with the Databricks platform. See [NOTICE](NOTICE).

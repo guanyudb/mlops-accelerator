@@ -29,7 +29,7 @@ targets:
     mode: development
     default: true
     variables:
-      schema: dbdemos_mlops
+      schema: dbdemos_mlops_dev
 
   staging:
     mode: production

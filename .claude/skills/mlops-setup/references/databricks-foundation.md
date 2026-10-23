@@ -1,30 +1,12 @@
----
-name: mlops-e2e-setup
-description: Stand this MLOps project up in a Databricks workspace end to end - schemas, bundle deploy across dev/staging/prod, CI service principal and its permission chain, first model version, and the Unity Catalog approval gate. Use when someone has cloned the repo and wants a working three-gate pipeline, or when moving the project to a new workspace.
----
+# Databricks foundation (both platforms)
 
-# Set up the three-gate MLOps pipeline
+The Databricks half of the setup. It is the same whether CI/CD runs on GitHub Actions or
+Azure DevOps. Do Phases 0-5 here, then Phase 6 in your platform's file
+([github-actions.md](github-actions.md) or [azure-devops.md](azure-devops.md)), then come
+back for Phase 7.
 
-Take a fresh clone to a working pipeline: one codebase promoted dev -> staging -> prod,
-with three human approval gates. Work through the phases in order and **verify each one
-before moving on** - a later phase failing usually means an earlier verification was
-skipped.
-
-Ask the user for anything you cannot determine. Never guess a catalog name, and never
-print a service principal secret.
-
-## What you are building
-
-```
-Gate 1  pull request into main    - CI check + reviewer approval
-Gate 2  pre-production release    - protected GitHub Environment, human approves
-Gate 3  model approval in UC      - version parks until a human approves it
-```
-
-Data lives in **production only**; dev and staging read from it, so there are no copies
-to drift apart.
-
----
+Every value in angle brackets (`<CATALOG>`, `<PROFILE>`, ...) comes from the user. Never
+guess one, and never echo a service principal secret.
 
 ## Phase 0 - Collect settings and check access
 
@@ -40,7 +22,7 @@ You need three things from the user:
 |---|---|
 | CLI profile | `databricks auth login --host <workspace-url> --profile <name>` (interactive - the user runs it) |
 | Catalog | Must already exist. `databricks catalogs list -p <PROFILE>` |
-| Schema prefix | Default `dbdemos_mlops`. Change it if those schemas are taken |
+| Schemas | Fixed: `dbdemos_mlops_dev`, `dbdemos_mlops_staging`, `dbdemos_mlops_prod`. If any already exist in that catalog for something else, use a different catalog |
 
 **Confirm the catalog is writable before going further**:
 
@@ -55,8 +37,11 @@ so - everything downstream fails otherwise.
 > **You usually cannot create a catalog.** Many workspaces (all FEVM sandboxes) use a
 > Default Storage metastore, where `CREATE CATALOG` fails with *"Metastore storage root URL
 > does not exist"* unless you supply a managed location. Use an existing catalog.
-> On a shared workspace, pick one the user actually owns and prefix the schemas so you
-> never write into someone else's namespace.
+> On a shared workspace, pick a catalog the user actually owns (`ALL_PRIVILEGES`/`MANAGE`)
+> so you never write into someone else's namespace. The schema names are not configurable in
+> this version: they are set in the bundle targets and in `00-setup`'s shared-data default,
+> which no job overrides, so renaming them in one place breaks how dev and staging find the
+> production data.
 
 ## Phase 1 - Create the three stage schemas
 
@@ -227,31 +212,6 @@ link is good - do not trust it.
 > Versions registered **before** the link do not park at the gate. To arm the gate, run
 > `churn_training -t prod` once more and let the new version park.
 
-## Phase 6 - GitHub configuration
-
-Three secrets and one variable. **The user sets these** - `gh secret set` handles the
-secret value, and the catalog is a variable because it is not sensitive:
-
-```
-Settings -> Secrets and variables -> Actions
-  Secrets:    DATABRICKS_HOST           = <workspace url>
-              DATABRICKS_CLIENT_ID      = <application id>
-              DATABRICKS_CLIENT_SECRET  = <the OAuth secret>
-  Variables:  DATABRICKS_CATALOG        = <CATALOG>
-```
-
-Then the two gates that live in GitHub:
-
-- **Gate 1** - branch protection on `main`: require a pull request with 1 approving
-  review and the **`validate`** status check.
-- **Gate 2** - an Environment named **`prod`** with a required reviewer. The production
-  job targets it, so promotion pauses.
-- Create a **`release`** branch (an audit pointer; nothing triggers from it).
-
-> Both gates need a **public repo** on GitHub Free - branch protection returns
-> *"Upgrade to GitHub Pro or make this repository public"* and environment reviewers are
-> rejected on a private repo. A private repo can create the environment but it will not
-> pause, silently removing Gate 2. Check this before promising a customer the gates work.
 
 ## Phase 7 - Verify the whole thing
 
@@ -307,25 +267,3 @@ Run 07 before 08 - 07 creates the inference table, the baseline table and the mo
 08 injects synthetic drift and reads the monitor's metrics tables. Both take a while (08
 generates 30 days of data and polls the monitor refresh).
 
-## Known to work
-
-These phases have been run start to finish on two unrelated workspaces - an Azure FEVM
-sandbox and a shared AWS workspace using an existing catalog with prefixed schemas. In both
-cases: 12 jobs deployed, production held the feature/label tables while dev and staging held
-none, the model registered, the deployment job reported `CONNECTED`, and a newly registered
-version parked with `Approval_Check` failing on *"Model version not approved for deployment"*.
-
-If your run diverges from that, treat it as a real difference worth understanding rather than
-something to work around.
-
-## When something fails
-
-| Symptom | Cause |
-|---|---|
-| `PERMISSION_DENIED` naming an object | A missing grant from Phase 4. The message names the object - grant that privilege |
-| Model never appears / nothing to approve | The training job needs its `register` task (notebook 03b); training alone only logs to MLflow |
-| Jobs created with `<CATALOG>` in the name | `BUNDLE_VAR_catalog` was unset during deploy - re-export and redeploy |
-| `Metastore storage root URL does not exist` | Something tried `CREATE CATALOG` on a Default Storage metastore - point at an existing catalog |
-| Deployment job fails at the serving step | Serverless serving may need a budget policy the workspace lacks; the notebook treats it as non-fatal so the model still promotes |
-| `KeyError: 'optuna.study_direction'` | A repeat run reloading a previous study - the training notebook uses a unique study name per run; keep that |
-| Endpoint does not update after approval | Same budget-policy grant. The promotion still happened; check the alias |

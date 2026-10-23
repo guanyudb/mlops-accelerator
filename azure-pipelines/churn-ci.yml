@@ -1,0 +1,36 @@
+# =============================================================================
+# churn-ci - pull-request validation for Azure Repos.
+#
+# Validates the bundle and deploys it to staging, proving the change is
+# deployable before it can merge. Azure Repos runs this through a build
+# validation policy on `main` (not a `pr:` trigger). Make that policy required
+# and add a minimum-reviewer policy: together they are Gate 1 (code review).
+# =============================================================================
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: mlops-databricks
+  - name: DATABRICKS_TF_VERSION
+    value: "1.5.7"
+
+jobs:
+  - job: validate
+    displayName: Validate + deploy to staging
+    steps:
+      - checkout: self
+      - template: templates/databricks-setup.yml
+      - bash: |
+          set -euo pipefail
+          databricks bundle validate -t staging
+          databricks bundle deploy -t staging
+        displayName: bundle validate + deploy (staging integration check)
+        workingDirectory: $(Build.SourcesDirectory)/churn-mlops
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+          DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+          BUNDLE_VAR_catalog: $(DATABRICKS_CATALOG)

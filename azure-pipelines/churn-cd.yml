@@ -1,0 +1,104 @@
+# =============================================================================
+# churn-cd - continuous delivery for Azure Repos. One run on merge to `main`:
+#
+#   DeployStaging : deploy to staging, train and register a model (the E2E check)
+#   DeployProd    : waits for approval on the `prod` Environment, then deploys to
+#                   production and registers a new version, which parks for
+#                   model approval in Unity Catalog
+#   Promote       : fast-forward `release` to this commit, recording what
+#                   production now runs
+#
+# Governance gates:
+#   Gate 1 - code review: build validation (churn-ci) + reviewer policy on `main`
+#   Gate 2 - pre-production release: approval check on the `prod` Environment.
+#            Create the Environment and its approval BEFORE the first run - a
+#            deployment job that names a missing Environment creates it with no
+#            approval, and production deploys without pausing.
+#   Gate 3 - model approval in Unity Catalog
+#
+# The commit that passes staging is exactly the commit deployed to production.
+# `release` is only an audit pointer; nothing triggers from it.
+# =============================================================================
+trigger:
+  branches:
+    include: [ main ]
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: mlops-databricks
+  - name: DATABRICKS_TF_VERSION
+    value: "1.5.7"
+
+stages:
+  - stage: DeployStaging
+    displayName: "Staging: deploy + train + register"
+    jobs:
+      - job: staging
+        timeoutInMinutes: 60
+        steps:
+          - checkout: self
+          - template: templates/databricks-setup.yml
+          - bash: |
+              set -euo pipefail
+              databricks bundle deploy -t staging
+              # The promotion gate: training and registration must succeed in
+              # staging (against the shared production data) before anything
+              # reaches production.
+              databricks bundle run churn_training -t staging
+              databricks bundle run churn_batch_inference -t staging \
+                || echo "##vso[task.logissue type=warning]staging batch inference failed (non-fatal)"
+            displayName: Deploy to staging + train + register
+            workingDirectory: $(Build.SourcesDirectory)/churn-mlops
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+              DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+              BUNDLE_VAR_catalog: $(DATABRICKS_CATALOG)
+
+  - stage: DeployProd
+    displayName: "Prod: deploy + train -> new version parks for model approval"
+    dependsOn: DeployStaging
+    jobs:
+      - deployment: prod
+        displayName: Deploy to production
+        environment: prod          # Gate 2 - the approval check lives on this Environment
+        timeoutInMinutes: 60
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self   # deployment jobs do not check out the repo by default
+                - template: templates/databricks-setup.yml
+                - bash: |
+                    set -euo pipefail
+                    databricks bundle deploy -t prod
+                    databricks bundle run churn_training -t prod
+                    echo "New production version registered - it parks until approved in Unity Catalog (Gate 3)."
+                  displayName: Deploy to prod + train + register
+                  workingDirectory: $(Build.SourcesDirectory)/churn-mlops
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+                    DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+                    BUNDLE_VAR_catalog: $(DATABRICKS_CATALOG)
+
+  - stage: Promote
+    displayName: "Promote: fast-forward release"
+    dependsOn: DeployProd
+    jobs:
+      - job: promote
+        steps:
+          - checkout: self
+            persistCredentials: true   # lets the step push with the build service identity
+            fetchDepth: 0
+          - bash: |
+              set -euo pipefail
+              # A plain push only fast-forwards, so a diverged `release` fails loudly
+              # instead of being overwritten. Needs the project's Build Service to have
+              # Contribute on this repository, and no branch policy on `release`.
+              git push origin "$(Build.SourceVersion):refs/heads/release"
+              echo "release fast-forwarded to $(Build.SourceVersion)"
+            displayName: Fast-forward release to this commit

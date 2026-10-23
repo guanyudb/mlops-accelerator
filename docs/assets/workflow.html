@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MLOps Accelerator - how a change reaches production</title>
+<!--
+  Source for docs/assets/workflow-light.png and workflow-dark.png, the diagram at the top of
+  the README. Edit this file, then re-render both images:
+    docs/assets/render.sh
+-->
+<style>
+  :root {
+    --page:#F9F7F4; --card:#FFFFFF; --ink:#1B3139; --muted:#5F6F76; --line:#8A979C;
+    --border:#E3DFD7; --band:#E9EEF1; --plane:#F2EFE9; --lava:#FF3621; --lava-soft:#FFEDE9;
+    --shadow: drop-shadow(0 1px 2px rgba(27,49,57,.06)) drop-shadow(0 4px 10px rgba(27,49,57,.06));
+  }
+  :root.dark {
+    --page:#0D1A20; --card:#152730; --ink:#E9EEF0; --muted:#9FB1B9; --line:#7E9198;
+    --border:#2A3D46; --band:#1A2F39; --plane:#10212A; --lava:#FF5A3D; --lava-soft:#33201C;
+    --shadow: none;
+  }
+  html, body { margin:0; background:var(--page); }
+  svg { display:block; width:1400px; height:720px;
+        font-family:-apple-system,"SF Pro Text","Segoe UI",Inter,Helvetica,Arial,sans-serif; }
+  .card   { fill:var(--card); stroke:var(--border); stroke-width:1; filter:var(--shadow); }
+  .plane  { fill:var(--plane); stroke:var(--border); stroke-width:1; }
+  .band   { fill:var(--band); }
+  .job    { fill:none; stroke:var(--line); stroke-width:1; stroke-dasharray:4 4; opacity:.7; }
+  .gate   { fill:var(--lava); }
+  .gatebox{ fill:var(--lava-soft); stroke:var(--lava); stroke-width:1.75; }
+  .flow   { stroke:var(--line); stroke-width:1.75; fill:none; }
+  .reads  { stroke:var(--line); stroke-width:1.5; fill:none; stroke-dasharray:5 4; }
+  .head   { fill:var(--line); }
+  .title  { fill:var(--ink); font-size:18px; font-weight:700; }
+  .h2     { fill:var(--ink); font-size:15px; font-weight:700; }
+  .body   { fill:var(--muted); font-size:13px; }
+  .small  { fill:var(--muted); font-size:12px; }
+  .lbl    { fill:var(--muted); font-size:11.5px; }
+  .tag    { fill:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:1.1px; }
+  .tag-l  { fill:var(--lava); font-size:10.5px; font-weight:700; letter-spacing:1.1px; }
+  .mono   { font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace; }
+  .code   { fill:var(--ink); font-size:11.5px; }
+  .num    { fill:#FFFFFF; font-size:17px; font-weight:800; }
+  .num-s  { fill:#FFFFFF; font-size:13px; font-weight:800; }
+  .gname  { fill:var(--ink); font-size:13px; font-weight:700; }
+  .heading{ fill:var(--ink); font-size:16px; font-weight:700; }
+</style>
+<script>if (location.hash === '#dark') document.documentElement.classList.add('dark');</script>
+</head>
+<body>
+<figure style="margin:0">
+<svg viewBox="0 0 1400 720" role="img"
+     aria-label="A change moves from a pull request through staging to production, passing a code review gate and a release approval gate in CI/CD. In Databricks, each production model version is evaluated automatically and then waits at a third gate until a human approves it in Unity Catalog, after which it becomes the champion and the serving endpoint updates.">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+  </defs>
+
+  <!-- header + legend -->
+  <text x="31" y="42" class="heading">How a change reaches production</text>
+  <rect x="926" y="29" width="13" height="13" rx="2.5" class="gate" transform="rotate(45 932.5 35.5)"/>
+  <text x="948" y="40" class="lbl">human approval</text>
+  <line x1="1050" y1="35.5" x2="1086" y2="35.5" class="flow" marker-end="url(#arr)"/>
+  <text x="1094" y="40" class="lbl">automated</text>
+  <line x1="1180" y1="35.5" x2="1216" y2="35.5" class="reads" marker-end="url(#arr)"/>
+  <text x="1224" y="40" class="lbl">reads data</text>
+
+  <!-- ===== Top row: the code path ===== -->
+  <rect x="31"   y="76" width="210" height="160" rx="14" class="card"/>
+  <rect x="302"  y="76" width="210" height="160" rx="14" class="card"/>
+  <rect x="730"  y="76" width="210" height="160" rx="14" class="card"/>
+  <rect x="1158" y="76" width="210" height="160" rx="14" class="card"/>
+
+  <text x="49"  y="104" class="tag">GIT · YOU</text>
+  <text x="49"  y="132" class="title">Develop</text>
+  <text x="49"  y="160" class="body">branch from main and</text>
+  <text x="49"  y="180" class="body">change notebooks or jobs</text>
+
+  <text x="320" y="104" class="tag">CI · CHURN-CI</text>
+  <text x="320" y="132" class="title">Pull request</text>
+  <text x="320" y="160" class="body">validate the bundle and</text>
+  <text x="320" y="180" class="body">deploy it to staging</text>
+
+  <text x="748" y="104" class="tag">CD · STAGE 1</text>
+  <text x="748" y="132" class="title">Staging</text>
+  <text x="748" y="160" class="body">deploy, train, and</text>
+  <text x="748" y="180" class="body">register a model</text>
+
+  <text x="1176" y="104" class="tag">CD · STAGE 2</text>
+  <text x="1176" y="132" class="title">Production</text>
+  <text x="1176" y="160" class="body">deploy, train, register</text>
+  <text x="1176" y="180" class="body">a new model version</text>
+  <text x="1176" y="214" class="mono code">release → this commit</text>
+
+  <!-- gates 1 and 2 -->
+  <rect x="601" y="120" width="40" height="40" rx="7" class="gate" transform="rotate(45 621 140)"/>
+  <text x="621" y="146" text-anchor="middle" class="num">1</text>
+  <text x="621" y="196" text-anchor="middle" class="tag-l">GATE 1</text>
+  <text x="621" y="214" text-anchor="middle" class="gname">Code review</text>
+
+  <rect x="1029" y="120" width="40" height="40" rx="7" class="gate" transform="rotate(45 1049 140)"/>
+  <text x="1049" y="146" text-anchor="middle" class="num">2</text>
+  <text x="1049" y="196" text-anchor="middle" class="tag-l">GATE 2</text>
+  <text x="1049" y="214" text-anchor="middle" class="gname">Release approval</text>
+
+  <!-- top-row arrows -->
+  <line x1="241"  y1="140" x2="300"  y2="140" class="flow" marker-end="url(#arr)"/>
+  <line x1="512"  y1="140" x2="591"  y2="140" class="flow" marker-end="url(#arr)"/>
+  <line x1="651"  y1="140" x2="728"  y2="140" class="flow" marker-end="url(#arr)"/>
+  <line x1="940"  y1="140" x2="1019" y2="140" class="flow" marker-end="url(#arr)"/>
+  <line x1="1079" y1="140" x2="1156" y2="140" class="flow" marker-end="url(#arr)"/>
+  <text x="271"  y="130" text-anchor="middle" class="lbl">open PR</text>
+  <text x="551"  y="130" text-anchor="middle" class="lbl">CI green</text>
+  <text x="689"  y="130" text-anchor="middle" class="lbl">merge</text>
+  <text x="979"  y="130" text-anchor="middle" class="lbl">E2E passes</text>
+  <text x="1117" y="130" text-anchor="middle" class="lbl">approved</text>
+
+  <!-- CI/CD band: which steps run as the service principal -->
+  <rect x="302" y="262" width="1066" height="34" rx="17" class="band"/>
+  <text x="322" y="284" class="gname" style="font-size:12.5px">CI/CD — GitHub Actions or Azure DevOps</text>
+  <text x="870" y="284" class="small">runs as a Databricks service principal</text>
+
+  <!-- ===== Databricks plane ===== -->
+  <rect x="31" y="318" width="1338" height="382" rx="18" class="plane"/>
+  <text x="51" y="664" class="tag">DATABRICKS</text>
+  <text x="51" y="684" class="body">one catalog · a schema per stage</text>
+
+  <!-- stage schemas -->
+  <rect x="41"   y="372" width="190" height="80" rx="11" class="card"/>
+  <rect x="740"  y="372" width="190" height="80" rx="11" class="card"/>
+  <rect x="1168" y="372" width="190" height="80" rx="11" class="card"/>
+  <text x="57"   y="393" class="tag">DEV</text>
+  <text x="57"   y="413" class="mono code">dbdemos_mlops_dev</text>
+  <text x="57"   y="434" class="small">reads production data</text>
+  <text x="756"  y="393" class="tag">STAGING</text>
+  <text x="756"  y="413" class="mono code">dbdemos_mlops_staging</text>
+  <text x="756"  y="434" class="small">reads production data</text>
+  <text x="1184" y="393" class="tag">PROD</text>
+  <text x="1184" y="413" class="mono code">dbdemos_mlops_prod</text>
+  <text x="1184" y="434" class="small">owns features &amp; labels</text>
+
+  <!-- deploys from the top row into each schema -->
+  <line x1="136"  y1="236" x2="136"  y2="370" class="flow" marker-end="url(#arr)"/>
+  <line x1="835"  y1="236" x2="835"  y2="370" class="flow" marker-end="url(#arr)"/>
+  <line x1="1263" y1="236" x2="1263" y2="370" class="flow" marker-end="url(#arr)"/>
+  <text x="146"  y="334" class="mono code" style="fill:var(--muted)">bundle deploy -t dev</text>
+  <text x="845"  y="334" class="lbl">deploy · train · register</text>
+  <text x="1253" y="334" text-anchor="end" class="lbl">deploy · train · register</text>
+
+  <!-- shared data: production owns it, staging reads it -->
+  <line x1="1168" y1="412" x2="932" y2="412" class="reads" marker-end="url(#arr)"/>
+  <text x="1049" y="402" text-anchor="middle" class="lbl">reads features &amp; labels</text>
+
+  <!-- MLflow 3 deployment job: runs when production registers a new version -->
+  <rect x="580" y="528" width="784" height="122" rx="14" class="job"/>
+  <text x="596" y="641" class="lbl">MLflow 3 deployment job</text>
+
+  <line x1="1263" y1="452" x2="1263" y2="538" class="flow" marker-end="url(#arr)"/>
+  <text x="1253" y="500" text-anchor="end" class="lbl">new version registered</text>
+
+  <rect x="1168" y="540" width="190" height="80" rx="11" class="card"/>
+  <text x="1184" y="562" class="tag">AUTOMATED</text>
+  <text x="1184" y="585" class="h2">Evaluation</text>
+  <text x="1184" y="605" class="small">checks + @challenger</text>
+
+  <rect x="880" y="540" width="190" height="80" rx="11" class="gatebox"/>
+  <text x="896" y="562" class="tag-l">GATE 3 · HUMAN</text>
+  <text x="896" y="585" class="h2 mono" style="font-size:14px">Approval_Check</text>
+  <text x="896" y="605" class="small">waits for a human</text>
+  <rect x="1039.5" y="529.5" width="21" height="21" rx="4" class="gate" transform="rotate(45 1050 540)"/>
+  <text x="1050" y="544.5" text-anchor="middle" class="num-s">3</text>
+
+  <rect x="592" y="540" width="190" height="80" rx="11" class="card"/>
+  <text x="608" y="562" class="tag">AUTOMATED</text>
+  <text x="608" y="585" class="h2">Deployment</text>
+  <text x="608" y="605" class="small">promotes to @champion</text>
+
+  <rect x="304" y="540" width="190" height="80" rx="11" class="card"/>
+  <text x="320" y="562" class="tag">MODEL SERVING</text>
+  <text x="320" y="585" class="h2">Serving endpoint</text>
+  <text x="320" y="605" class="small">serves @champion</text>
+
+  <line x1="1168" y1="580" x2="1072" y2="580" class="flow" marker-end="url(#arr)"/>
+  <line x1="880"  y1="580" x2="784"  y2="580" class="flow" marker-end="url(#arr)"/>
+  <line x1="592"  y1="580" x2="496"  y2="580" class="flow" marker-end="url(#arr)"/>
+  <text x="1119" y="570" text-anchor="middle" class="lbl">checks pass</text>
+  <text x="831"  y="570" text-anchor="middle" class="lbl">approved</text>
+  <text x="543"  y="570" text-anchor="middle" class="lbl">updates</text>
+</svg>
+</figure>
+</body>
+</html>

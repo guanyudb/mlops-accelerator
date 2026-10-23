@@ -1,0 +1,45 @@
+# =============================================================================
+# Shared steps for every job that talks to Databricks: check the configuration,
+# then install the Databricks CLI and Terraform 1.5.7.
+#
+# Values come from the `mlops-databricks` variable group. Each step that needs
+# them maps them explicitly under `env:` - secrets are never exposed to scripts
+# automatically, and variables that are exposed automatically get their names
+# upper-cased, which would turn BUNDLE_VAR_catalog into BUNDLE_VAR_CATALOG and
+# the bundle would not see it.
+# =============================================================================
+steps:
+  - bash: |
+      set -euo pipefail
+      # An undefined Azure DevOps variable is not empty: the macro is left in place
+      # as literal text such as "$(DATABRICKS_CATALOG)". Treat that as missing too,
+      # otherwise the bundle deploys with the catalog unresolved and only fails at
+      # run time.
+      missing=0
+      for name in DATABRICKS_HOST DATABRICKS_CLIENT_ID DATABRICKS_CLIENT_SECRET BUNDLE_VAR_catalog; do
+        value="${!name:-}"
+        case "$value" in
+          ''|'$('*)
+            echo "##vso[task.logissue type=error]$name is not set - add it to the mlops-databricks variable group"
+            missing=1 ;;
+        esac
+      done
+      [ "$missing" -eq 0 ] || exit 1
+      echo "Catalog: $BUNDLE_VAR_catalog"
+    displayName: Check configuration
+    env:
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
+      BUNDLE_VAR_catalog: $(DATABRICKS_CATALOG)
+
+  - bash: |
+      set -euo pipefail
+      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+      # Setting DATABRICKS_TF_VERSION alone is not enough - the CLI still tries to
+      # download Terraform and can fail on an expired signing key. Install it and
+      # point the CLI at it.
+      curl -fsSL https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip -o /tmp/tf.zip
+      unzip -oq /tmp/tf.zip -d /tmp/tfbin
+      echo "##vso[task.setvariable variable=DATABRICKS_TF_EXEC_PATH]/tmp/tfbin/terraform"
+    displayName: Install tooling (Databricks CLI + Terraform 1.5.7)

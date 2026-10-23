@@ -3,10 +3,11 @@
 #
 #   deploy-staging : deploy to staging, train and register a model
 #                    (the end-to-end check)
-#   promote        : advance the `release` pointer to this commit
-#                    (`release` records what production runs; it is not a trigger)
 #   deploy-prod    : deploy to production, train and register a new production
 #                    model version, which parks for model approval in Unity Catalog
+#   promote        : advance the `release` pointer to this commit, after production
+#                    has deployed (`release` records what production runs; it is not
+#                    a trigger)
 #
 # Governance gates:
 #   Gate 1 — code review on the pull request (branch protection: churn-ci check
@@ -42,6 +43,9 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-staging:
     name: "Staging: deploy + train + register (E2E gate)"
+    # Skip in the shared template repository itself - it has no workspace wired
+    # up. Copies made from it are not templates, so CI runs normally there.
+    if: ${{ !github.event.repository.is_template }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -76,33 +80,13 @@ jobs:
             || echo "::warning::staging batch inference failed (non-fatal)"
 
   # ---------------------------------------------------------------------------
-  promote:
-    name: "Promote: fast-forward release (audit pointer)"
-    needs: deploy-staging
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ github.token }}
-      - name: Fast-forward release to this commit
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # `release` records what prod runs. Move it to the commit that just
-          # passed the staging gate. --ff-only keeps release a clean ancestor line.
-          git push origin "HEAD:refs/heads/release"
-          echo "release fast-forwarded to ${GITHUB_SHA}"
-
-  # ---------------------------------------------------------------------------
   deploy-prod:
-    name: "Prod: deploy + train -> Challenger (parks at Gate 2)"
-    needs: promote
-    # Promotion gate: this job waits for a human to approve the `prod` GitHub
-    # Environment (Settings -> Environments -> prod -> Required reviewers). The
-    # cascade runs staging + promote, then PAUSES here until you click
-    # "Review deployments -> Approve" in the Actions run. Only then does prod deploy.
+    name: "Prod: deploy + train -> new version parks for model approval"
+    needs: deploy-staging
+    # Gate 2: this job waits for a human to approve the `prod` GitHub Environment
+    # (Settings -> Environments -> prod -> Required reviewers). The run deploys and
+    # trains in staging, then PAUSES here until a reviewer clicks
+    # "Review deployments -> Approve". Only then does production deploy.
     environment: prod
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -129,4 +113,25 @@ jobs:
           databricks bundle deploy -t prod
           databricks bundle run churn_training -t prod
           echo "New prod Challenger registered — parks at the UC approval gate."
-          echo "Approve it in the model UI (Gate 2) to promote @Champion and roll the endpoint."
+          echo "Approve it in the model UI (Gate 3) to promote @Champion and roll the endpoint."
+
+  # ---------------------------------------------------------------------------
+  promote:
+    name: "Promote: fast-forward release (audit pointer)"
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+      - name: Fast-forward release to this commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # `release` records what prod runs, so move it only after production
+          # has deployed. A plain push only fast-forwards, so a diverged release
+          # fails loudly instead of being overwritten.
+          git push origin "HEAD:refs/heads/release"
+          echo "release fast-forwarded to ${GITHUB_SHA}"

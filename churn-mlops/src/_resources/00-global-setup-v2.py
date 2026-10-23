@@ -38,9 +38,27 @@ class DBDemos():
     #If the catalog is defined, we force it to the given value and throw exception if not.
     current_catalog = spark.sql("select current_catalog()").collect()[0]['current_catalog()']
     if current_catalog != catalog:
-      catalogs = [r['catalog'] for r in spark.sql("SHOW CATALOGS").collect()]
-      if catalog not in catalogs:
-        spark.sql(f"CREATE CATALOG IF NOT EXISTS `{catalog}`")
+      # Does the catalog already exist? `SHOW CATALOGS` only lists catalogs the running
+      # principal can see, so a service principal with USE_CATALOG but no metastore-wide
+      # visibility can come up empty even though the catalog is there. Ask directly.
+      try:
+        spark.sql(f"DESCRIBE CATALOG `{catalog}`")
+        catalog_exists = True
+      except Exception:
+        catalog_exists = False
+      if not catalog_exists:
+        # On a Default-Storage metastore CREATE CATALOG fails with "Metastore storage root
+        # URL does not exist" unless a MANAGED LOCATION is supplied — so surface a clear
+        # instruction instead of an opaque Spark error.
+        try:
+          spark.sql(f"CREATE CATALOG IF NOT EXISTS `{catalog}`")
+        except Exception as e:
+          raise RuntimeError(
+            f"Catalog `{catalog}` does not exist and could not be created ({type(e).__name__}). "
+            "On a Default-Storage metastore you cannot CREATE CATALOG without a managed "
+            "location — create the catalog up front (or point the `catalog` variable at an "
+            "existing one) and grant the running principal USE_CATALOG + CREATE_SCHEMA."
+          ) from e
         if catalog == 'dbdemos':
           spark.sql(f"ALTER CATALOG `{catalog}` OWNER TO `account users`")
     use_and_create_db(catalog, db)

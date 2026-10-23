@@ -29,6 +29,16 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Which catalog and schema to monitor
+# This notebook is usually opened by hand rather than run from a job, so declare the
+# catalog and stage schema here instead of inheriting them. `%run` passes the calling
+# notebook's widgets down to 00-setup, and without these two the schema would default
+# to "dbdemos_mlops" (not a real stage) and the catalog to its placeholder.
+dbutils.widgets.text("catalog", "<CATALOG>", "Unity Catalog")
+dbutils.widgets.text("stage_db", "dbdemos_mlops_prod", "Stage schema (monitor production)")
+
+# COMMAND ----------
+
 # MAGIC %run ../_resources/00-setup $adv_mlops=true
 
 # COMMAND ----------

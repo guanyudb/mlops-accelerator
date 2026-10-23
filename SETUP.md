@@ -1,185 +1,49 @@
-# Setup Guide
+# Setup guide
 
-How to stand this project up in your own Databricks workspace and GitHub repository. The demo flow
-itself (the three approval gates) is described in the [README](README.md).
+How to stand this project up in your own Databricks workspace and CI/CD platform by hand. If
+you use Claude Code, the `mlops-setup` skill walks the same steps for you - see the
+[README](README.md).
 
----
+The detailed steps live in one place, the skill's reference guides, so the manual path and the
+automated path never drift apart. They are written to be read directly.
 
 ## Prerequisites
 
-- A **Databricks workspace** with Unity Catalog, and a catalog you can create schemas in.
-- **Databricks CLI** v0.240+ — `databricks auth login --host <workspace-url> --profile <name>`
-- A **service principal** for CI/CD, with an OAuth (M2M) client secret.
-- **Terraform 1.5.7** available to the CLI (see [Troubleshooting](#troubleshooting) — the workflows
-  install it automatically in CI).
-- Repository admin rights on your GitHub fork/copy (to set secrets, branch protection, environments).
+- A **Databricks workspace** with Unity Catalog, and an **existing catalog** you can create
+  schemas in. Many workspaces cannot create catalogs at all (a Default Storage metastore
+  rejects `CREATE CATALOG`), so plan on using one that already exists.
+- **Databricks CLI** v0.240+, signed in: `databricks auth login --host <workspace-url> --profile <name>`
+- **Terraform 1.5.7** available to the CLI (the pipelines install it themselves)
+- Rights to create a **service principal** in the workspace, for CI/CD
+- Admin rights on your **repository**: GitHub, or an Azure DevOps project
 
----
+## Steps
 
-## 1. Databricks: catalog, schemas, and data
+| # | Do | Guide |
+|---|---|---|
+| 1 | Check access, create the three stage schemas, deploy the bundle, seed production data, create the CI service principal and grant it, register a first model, and link the approval gate | [databricks-foundation.md](.claude/skills/mlops-setup/references/databricks-foundation.md), Phases 0-5 |
+| 2 | Configure your platform: credentials, Gate 1 and Gate 2 | [github-actions.md](.claude/skills/mlops-setup/references/github-actions.md) **or** [azure-devops.md](.claude/skills/mlops-setup/references/azure-devops.md) |
+| 3 | Verify everything as the service principal | [databricks-foundation.md](.claude/skills/mlops-setup/references/databricks-foundation.md), Phase 7 |
+| - | Swap in your own model | [bring-your-own-model.md](.claude/skills/mlops-setup/references/bring-your-own-model.md) |
+| - | Something failed | [troubleshooting.md](.claude/skills/mlops-setup/references/troubleshooting.md) |
 
-Create three schemas in your catalog — one per stage:
+Check each step before starting the next - several failures here are silent until much later.
 
-```bash
-CATALOG=<your_catalog>
-for S in dbdemos_mlops_dev dbdemos_mlops_staging dbdemos_mlops_prod; do
-  databricks schemas create $S $CATALOG -p <profile>
-done
-```
+## What you configure (and what you don't)
 
-**Data ownership:** production owns the feature and label tables; dev and staging read from
-production rather than keeping their own copies. `src/_resources/00-setup.py` enforces this — it only
-creates the source tables when the target schema is the production one.
+**Nothing in the repository needs editing.**
 
-## 2. Point the bundle at your environment
+| Setting | Locally | In CI |
+|---|---|---|
+| Catalog | `export BUNDLE_VAR_catalog=<your_catalog>` | `DATABRICKS_CATALOG` (GitHub variable / Azure DevOps variable group) |
+| Workspace | your CLI profile (`-p <profile>`) | `DATABRICKS_HOST` |
+| Credentials | your CLI profile | `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET` |
 
-**Nothing needs editing in the repository.** The catalog is a bundle variable, so supply it as
-configuration:
+The stage schemas are fixed: `dbdemos_mlops_dev`, `dbdemos_mlops_staging`, `dbdemos_mlops_prod`.
 
-| Where | How |
-|---|---|
-| Locally | `databricks bundle deploy -t dev --var catalog=<your_catalog>` (or `export BUNDLE_VAR_catalog=<your_catalog>`) |
-| In CI | repository **variable** `DATABRICKS_CATALOG` (Settings → Secrets and variables → Actions → **Variables**) |
+## Optional: monitoring and drift
 
-Every job task passes the catalog through to the notebooks, and `00-setup.py` reads it from a
-widget, so it is configured in exactly one place. Both workflows fail fast with a clear message if
-it isn't set — a bundle will otherwise deploy with the catalog unresolved and only break at run
-time.
-
-**Workspace URL is not in the bundle either.** The Databricks CLI resolves it from the environment —
-the `DATABRICKS_HOST` secret in CI, or your CLI profile locally — so you don't hardcode a workspace
-and the project stays portable across environments.
-
-The one placeholder that remains is `<CI_SERVICE_PRINCIPAL_APP_ID>` in `churn-mlops/databricks.yml`.
-It is declared for reference only (staging and prod `run_as` default to the deploying identity), so
-you can leave it as-is or set it to your service principal's application id.
-
-## 3. Deploy the bundle
-
-```bash
-cd churn-mlops
-export DATABRICKS_TF_VERSION=1.5.7
-export BUNDLE_VAR_catalog=<your_catalog>      # or pass --var catalog=<your_catalog> each time
-databricks bundle validate -t dev -p <profile>
-databricks bundle deploy   -t dev -p <profile>
-databricks bundle deploy   -t staging -p <profile>
-databricks bundle deploy   -t prod -p <profile>
-```
-
-Then seed production data once (this creates the shared feature/label tables and the
-`avg_price_increase` function):
-
-```bash
-databricks bundle run churn_feature_engineering -t prod -p <profile>
-```
-
-Verify: the production schema has the feature and label tables; dev and staging have none.
-
-## 4. Grant the CI service principal
-
-Each grant below unblocks a specific step in the pipeline — apply them all.
-
-```bash
-SP=<CI_SERVICE_PRINCIPAL_APP_ID>
-CATALOG=<your_catalog>
-
-# Catalog: USE_CATALOG, plus CREATE_SCHEMA (the setup notebook runs CREATE DATABASE IF NOT EXISTS)
-databricks grants update catalog $CATALOG -p <profile> \
-  --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_CATALOG\",\"CREATE_SCHEMA\"]}]}"
-
-# Schemas: read shared data, write models and tables
-for S in dbdemos_mlops_dev dbdemos_mlops_staging dbdemos_mlops_prod; do
-  databricks grants update schema $CATALOG.$S -p <profile> \
-    --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_SCHEMA\",\"SELECT\",\"EXECUTE\",\"CREATE_TABLE\",\"CREATE_FUNCTION\",\"CREATE_MODEL\",\"MODIFY\"]}]}"
-done
-```
-
-**After the model exists** (i.e. after the first training run registers a version), grant model-level
-rights — schema `CREATE_MODEL` alone does not allow adding versions to an existing model, and the
-validation/approval notebooks need `MANAGE` to set tags and aliases:
-
-```bash
-for S in dbdemos_mlops_staging dbdemos_mlops_prod; do
-  databricks grants update function $CATALOG.$S.advanced_mlops_churn -p <profile> \
-    --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"CREATE_MODEL_VERSION\",\"MANAGE\"]}]}"
-done
-```
-
-Two more, easy to miss:
-- **Experiment access** — if you run the first training as *yourself*, the MLflow experiment is
-  created under your user namespace and the service principal cannot read it. Either run the seed as
-  the service principal, or grant it `CAN_MANAGE` on the experiment.
-- **Job ownership** — the staging/prod jobs should be owned (or manageable) by the service principal.
-  If you deployed them as a user first, grant the SP `CAN_MANAGE` on those jobs, or redeploy as the SP.
-
-## 5. Wire the model approval gate
-
-Training registers a model version; the **deployment job** governs whether it is served. Link the job
-to the registered model once:
-
-```python
-from mlflow.tracking import MlflowClient
-MlflowClient(registry_uri="databricks-uc").update_registered_model(
-    "<CATALOG>.dbdemos_mlops_prod.advanced_mlops_churn",
-    deployment_job_id="<the churn_deployment_job id>",   # databricks jobs list
-)
-```
-
-Confirm the link with
-`GET /api/2.0/mlflow/unity-catalog/registered-models/get?name=<model>` — you want
-`deployment_job_state: CONNECTED`.
-
-## 6. GitHub configuration
-
-1. **Actions secrets** (`Settings → Secrets and variables → Actions → Secrets`):
-   ```
-   DATABRICKS_HOST            = <workspace url>
-   DATABRICKS_CLIENT_ID       = <service principal application id>
-   DATABRICKS_CLIENT_SECRET   = <service principal OAuth secret>
-   ```
-   and one **variable** (`… → Actions → Variables`) — not a secret, it isn't sensitive:
-   ```
-   DATABRICKS_CATALOG         = <your catalog>
-   ```
-2. **Branch protection on `main`** (Gate 1): require a pull request with **1 approving review**, and
-   require the **`validate`** status check.
-3. **Environment `prod`** (Gate 2): `Settings → Environments → New environment → prod`, add a
-   **required reviewer**. The production stage of `churn-cd` targets this environment, so promotion
-   pauses for approval.
-4. Create the **`release`** branch (it records what production is running; nothing triggers from it).
-
----
-
-## Troubleshooting
-
-**Terraform download fails (`openpgp: key expired`)**
-Setting `DATABRICKS_TF_VERSION` alone isn't enough — the CLI still tries to download Terraform.
-Install 1.5.7 and point the CLI at it:
-```bash
-curl -fsSL https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip -o /tmp/tf.zip
-unzip -oq /tmp/tf.zip -d /tmp/tfbin
-export DATABRICKS_TF_EXEC_PATH=/tmp/tfbin/terraform DATABRICKS_TF_VERSION=1.5.7
-```
-
-**`PERMISSION_DENIED` during a pipeline run** — almost always a missing grant from step 4. The message
-names the object (catalog, schema, model, experiment, or job); grant that specific privilege.
-
-**Model version never appears / nothing to approve** — the training job must include the
-**registration** step (notebook `03b`) after training; training alone only logs to MLflow tracking.
-Check `resources/churn_jobs.yml`.
-
-**Serving endpoint doesn't update after approval** — serverless model serving requires a budget
-policy the workspace may not grant the running principal. The serving notebook treats that error as
-non-fatal so the pipeline stays green and the model is still promoted; grant the policy to have the
-endpoint update automatically.
-
-**Deployment job fails at the serving step with a missing-table error** — the deployment job's tasks
-must pass the stage schema (`stage_db`) so the notebooks resolve the right schema.
-
-**`KeyError: 'optuna.study_direction'` on a repeat run** — hyperparameter studies are stored in a
-shared MLflow-backed store; the training notebook uses a unique study name per run to avoid reloading
-a previous study. Keep that behavior if you modify the notebook.
-
-**Working from a Databricks Git folder** — use `Repos`/*Git folder* (clone through the Databricks UI
-or `databricks repos create`). A plain copy of the files into a workspace folder is not Git-connected,
-so the branch/commit/push controls will not appear.
+Notebooks `07_model_monitoring` and `08_drift_detection` are not part of any job; open them by
+hand to show Lakehouse Monitoring. They read the batch-inference output, so run
+`databricks bundle run churn_batch_inference -t prod` first, then **07 before 08**. Details are
+at the end of [databricks-foundation.md](.claude/skills/mlops-setup/references/databricks-foundation.md).

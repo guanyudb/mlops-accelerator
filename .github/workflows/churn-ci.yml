@@ -15,6 +15,9 @@ permissions:
 
 jobs:
   validate:
+    # Skip in the shared template repository itself - it has no workspace wired
+    # up. Copies made from it are not templates, so CI runs normally there.
+    if: ${{ !github.event.repository.is_template }}
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -43,6 +43,9 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-staging:
     name: "Staging: deploy + train + register (E2E gate)"
+    # Skip in the shared template repository itself - it has no workspace wired
+    # up. Copies made from it are not templates, so CI runs normally there.
+    if: ${{ !github.event.repository.is_template }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:

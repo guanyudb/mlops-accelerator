@@ -24,15 +24,24 @@ the user decide.
 
 ## Secrets and variable
 
-Three secrets and one variable. **The user sets the secret value** - the agent must not
-handle or echo it:
+Three secrets and one variable. Set the non-sensitive ones directly:
 
 ```bash
 gh secret set DATABRICKS_HOST      --repo <OWNER>/<REPO> --body "<WORKSPACE_URL>"
 gh secret set DATABRICKS_CLIENT_ID --repo <OWNER>/<REPO> --body "<APPLICATION_ID>"
-gh secret set DATABRICKS_CLIENT_SECRET --repo <OWNER>/<REPO>     # user pastes at the prompt
 gh variable set DATABRICKS_CATALOG --repo <OWNER>/<REPO> --body "<CATALOG>"
 ```
+
+**The user sets the secret, in their own terminal** - not through you. The command prompts
+for the value, which an agent's shell cannot answer, and anything you type ends up in the
+transcript:
+
+```bash
+gh secret set DATABRICKS_CLIENT_SECRET --repo <OWNER>/<REPO>      # paste at the prompt
+```
+
+Confirm all four exist by name (values are never shown): `gh secret list` and
+`gh variable list` on the repository.
 
 The catalog is a **variable**, not a secret, because it is not sensitive. Both workflows stop
 with a clear message if it is missing.

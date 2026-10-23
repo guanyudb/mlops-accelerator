@@ -46,9 +46,9 @@ az pipelines variable-group create --name mlops-databricks --authorize false \
 GROUP_ID=$(az pipelines variable-group list --group-name mlops-databricks --query "[0].id" -o tsv)
 ```
 
-**The user adds the secret.** With no `--value`, the command prompts on standard input (or
-reads `AZURE_DEVOPS_EXT_PIPELINE_VAR_DATABRICKS_CLIENT_SECRET` if set), so the value never
-appears in a command line or transcript:
+**The user adds the secret, in their own terminal** - not through you. With no `--value`, the
+command prompts on standard input (or reads `AZURE_DEVOPS_EXT_PIPELINE_VAR_DATABRICKS_CLIENT_SECRET`
+if set), so the value never appears in a command line or transcript:
 
 ```bash
 az pipelines variable-group variable create --group-id $GROUP_ID \

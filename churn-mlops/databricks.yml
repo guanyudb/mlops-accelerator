@@ -20,9 +20,6 @@ variables:
     default: dbdemos_mlops
   model_short_name:
     default: advanced_mlops_churn
-  service_principal_app_id:
-    description: CI service principal (staging/prod run_as)
-    default: "<CI_SERVICE_PRINCIPAL_APP_ID>"
 
 targets:
   dev:

@@ -25,7 +25,7 @@ resources:
               stage_db: ${var.schema}
         # Register the best run to Unity Catalog as a new @Challenger version.
         # (02 only logs to MLflow tracking; 03b is what creates the UC model
-        # version — which is what triggers the linked deployment job / Gate 2.)
+        # version — which is what triggers the linked deployment job / Gate 3.)
         - task_key: register
           depends_on:
             - task_key: train

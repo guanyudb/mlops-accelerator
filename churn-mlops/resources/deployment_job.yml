@@ -1,4 +1,4 @@
-# MLflow 3 deployment job as code (Gate 2). Evaluation -> Approval_Check -> Deployment.
+# MLflow 3 deployment job as code (Gate 3 - model approval). Evaluation -> Approval_Check -> Deployment.
 # After `bundle deploy`, link it once to the UC model with:
 #   MlflowClient(registry_uri="databricks-uc").update_registered_model(
 #       "${var.catalog}.${var.schema}.${var.model_short_name}", deployment_job_id=<this job id>)

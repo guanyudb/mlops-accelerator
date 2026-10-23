@@ -1,8 +1,9 @@
 # =============================================================================
 # Churn MLOps — Databricks Asset Bundle (dbdemos advanced churn, deploy-code)
 # One codebase, three stages by SCHEMA. Code promotes dev -> staging -> prod
-# via Azure DevOps with a human review gate at the staging merge (Gate 1).
-# The prod model additionally requires a UC Approve click before serving (Gate 2).
+# through CI/CD (GitHub Actions or Azure DevOps) with three human gates: code
+# review on the pull request (Gate 1), approval of the production release
+# (Gate 2), and a Unity Catalog model approval before serving (Gate 3).
 # =============================================================================
 bundle:
   name: churn-mlops

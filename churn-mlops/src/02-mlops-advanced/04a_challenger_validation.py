@@ -318,7 +318,7 @@ results.tags
 
 # COMMAND ----------
 
-# DEMO Gate 2 (human-in-the-loop): 04a runs the automated validation and records the
+# Gate 3 (human-in-the-loop model approval): 04a runs the automated validation and records the
 # metric tags only. It does NOT auto-approve or auto-promote. Promotion to @Champion +
 # endpoint deployment happens in 04b_challenger_approval ONLY AFTER a human sets the
 # model-version tag `Approval_Check` = "Approved" in the Unity Catalog UI.
